@@ -1,10 +1,11 @@
-#include "display.h"
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include <ESP32Encoder.h>
-#include "OneButton.h"
+#include <OneButton.h>
 #include <Fetch.h>
 #include <WiFiManager.h>
+#include <Preferences.h>
+#include "display.h"
 
 void get_printer_data();
 void set_status(const char * status);
@@ -24,16 +25,13 @@ void DuringLongPress(void *oneButton);
 #define PIN_VBAT GPIO_NUM_4
 #define SLEEP_TIMEOUT 180
 
-const char* ssid = "VILJOEN";
-const char* password = "wearesecure";
-const char* serverName = "http://192.168.0.50:7125/";
-
 #define BG_NORMAL 0xcd8405
 #define BG_HIGHLIGHT 0xfbbf57
 
 RTC_DATA_ATTR int bootCount = 0;
 static RTC_NOINIT_ATTR bool AP_mode = false;
 
+Preferences preferences;
 WiFiManager wm;
 FetchClient client;
 FetchClient client_command;
@@ -42,7 +40,7 @@ OneButton button(12, true, true);
 
 WiFiManagerParameter moonraker_url("moonraker_url", "Moonraker URL", "http://192.168.0.50:7125/", 40);
 
-String serverPath = serverName;
+String serverPath;
 String command;
 unsigned long lastmove;
 unsigned long lastgetdata;
@@ -132,6 +130,10 @@ void saveParamsCallback () {
   Serial.print(moonraker_url.getID());
   Serial.print(" : ");
   Serial.println(moonraker_url.getValue());
+    preferences.begin("voron-remote", false);
+    preferences.putString("servername",moonraker_url.getValue());
+    serverPath = moonraker_url.getValue();
+    preferences.end();
 }
 
 void init_wifi()
@@ -143,6 +145,7 @@ void init_wifi()
     wm.addParameter(&moonraker_url);
     wm.setConfigPortalBlocking(false);
     wm.setSaveParamsCallback(saveParamsCallback);
+    wm.setConnectTimeout(20);
     //wm.setAPCallback(&configModeCallback);
 
     if (AP_mode)
@@ -222,17 +225,38 @@ void init_buttons()
   
 }
 
+void load_settings()
+{
+    if (AP_mode) return;
+    preferences.begin("voron-remote", false);
+    //Load moonraker URL
+    serverPath = "";
+    if (preferences.isKey("servername"))
+        serverPath = preferences.getString("servername","");
+
+    if (serverPath == "")
+    {
+        preferences.end();
+        set_status("Invalid URL");
+        delay(3000);
+        AP_mode = true;
+        esp_restart();
+    }
+    Serial.println(serverPath);
+    preferences.end();
+}
+
 void setup ()
 {
-
     Serial.begin(115200);
-    delay(500);
-
-    last_input = millis();
-
+    delay(200);
     init_display_touch();
     init_encoder();
     init_buttons();
+    load_settings();
+
+    last_input = millis();
+
     init_wifi();
 
 }
